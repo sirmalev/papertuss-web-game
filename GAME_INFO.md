@@ -6,11 +6,22 @@
 - **Created**: 2026-06-18
 
 ## How to Play
-1. Click/tap and drag BACK from the paper ball to set direction and power
+1. Click/tap and drag BACK from the paper ball to set direction and power (a radial power ring fills around the ball)
 2. Release to toss the paper toward the trash can
-3. Watch out for the fan's wind — it pushes the paper sideways!
-4. Score 3 baskets to level up and unlock harder rooms
-5. You have 10 throws per game
+3. Watch out for the fan's wind — it pushes the paper sideways! Ambient wind streaks show direction & strength
+4. Chain baskets without missing to build a **combo** — each combo level adds bonus points
+5. Score 3+ baskets to level up and unlock harder rooms
+6. You have 10 throws per game (+3 bonus throws on level up)
+
+## Features (v2)
+- Combo system with escalating point bonuses
+- Juice: particle bursts, paper-tear confetti, screen shake, screen flash, floating score text
+- Spinning paper with motion trail
+- Rim-bounce near-misses
+- Procedural WebAudio SFX (throw, swish, score, miss, level-up) + mute toggle (🔊 / press M)
+- Modern HUD: gradient panels, combo pill, dotted-arrow wind badge, shadows & vignette
+- Animated menu / game-over with pulsing buttons and "New Best" celebration
+- Resolution-independent scaling (sz() helper), DPR up to 2x, fixed-timestep loop
 
 ## Levels
 1. **Easy Office** — light wind

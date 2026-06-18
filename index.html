@@ -3,239 +3,227 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>Paper Tuss</title>
 <style>
-html,body{margin:0;height:100%;overflow:hidden;background:#2c2c2c;font-family:'Segoe UI',sans-serif;user-select:none;-webkit-user-select:none}
-canvas{display:block;cursor:crosshair}
+html,body{margin:0;height:100%;overflow:hidden;background:#1c2230;font-family:'Segoe UI',system-ui,sans-serif;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+canvas{display:block;cursor:crosshair;touch-action:none}
 #dev{position:fixed;top:4px;left:4px;color:#0f0;font:12px monospace;display:none;z-index:99;pointer-events:none}
-#loading{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#2c2c2c;color:#ffa500;font:24px sans-serif;z-index:100}
-#loading .bar{width:200px;height:6px;background:#444;border-radius:3px;margin-top:16px;overflow:hidden}
-#loading .fill{height:100%;width:0%;background:#ffa500;border-radius:3px;transition:width .3s}
+#loading{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 35%,#2c3650,#161b27);color:#ffb733;font:bold 30px system-ui,sans-serif;z-index:100;letter-spacing:2px}
+#loading .sub{font-size:13px;color:#7d8aa5;margin-top:10px;letter-spacing:1px;font-weight:400}
+#loading .bar{width:220px;height:6px;background:#2b3142;border-radius:3px;margin-top:20px;overflow:hidden}
+#loading .fill{height:100%;width:0%;background:linear-gradient(90deg,#ffb733,#ff7a3d);border-radius:3px;transition:width .25s}
+#mute{position:fixed;top:10px;right:10px;width:34px;height:34px;border-radius:50%;background:rgba(0,0,0,.35);color:#fff;border:none;font-size:16px;z-index:50;cursor:pointer;display:none}
 </style></head>
 <body>
 <canvas id="c"></canvas><div id="dev"></div>
-<div id="loading"><div>Paper Tuss</div><div style="font-size:14px;color:#999;margin-top:8px">Loading assets...</div><div class="bar"><div class="fill" id="loadFill"></div></div></div>
+<button id="mute" aria-label="mute">🔊</button>
+<div id="loading"><div>PAPER TUSS</div><div class="sub">Loading assets…</div><div class="bar"><div class="fill" id="loadFill"></div></div></div>
 <script type="module">
 import { STR } from "./strings.js";
+
+// ════════════════════════════════════════════════════════════
+//  Paper Tuss — upgraded edition
+// ════════════════════════════════════════════════════════════
 
 // ── Runtime key-color removal (magenta → transparent) ──
 const KEY_COLOR = [255, 0, 255];
 const KEY_THRESH = 50;
-
 function keyOutImage(img) {
   const c = document.createElement("canvas");
-  const w = img.naturalWidth || img.width;
-  const h = img.naturalHeight || img.height;
+  const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
   c.width = w; c.height = h;
   const cx = c.getContext("2d");
   cx.drawImage(img, 0, 0);
-  const d = cx.getImageData(0, 0, w, h);
-  const pix = d.data;
-  // Mark magenta pixels transparent
+  const d = cx.getImageData(0, 0, w, h), pix = d.data;
   const out = new Uint8Array(pix.length);
   for (let i = 0; i < pix.length; i += 4) {
-    const dr = Math.abs(pix[i] - KEY_COLOR[0]);
-    const dg = Math.abs(pix[i+1] - KEY_COLOR[1]);
-    const db = Math.abs(pix[i+2] - KEY_COLOR[2]);
-    if (dr < KEY_THRESH && dg < KEY_THRESH && db < KEY_THRESH && pix[i+3] > 128) {
-      out[i+3] = 0;
-    } else {
-      out[i] = pix[i]; out[i+1] = pix[i+1]; out[i+2] = pix[i+2]; out[i+3] = pix[i+3];
-    }
+    const dr = Math.abs(pix[i]-KEY_COLOR[0]), dg = Math.abs(pix[i+1]-KEY_COLOR[1]), db = Math.abs(pix[i+2]-KEY_COLOR[2]);
+    if (dr < KEY_THRESH && dg < KEY_THRESH && db < KEY_THRESH && pix[i+3] > 128) out[i+3] = 0;
+    else { out[i]=pix[i]; out[i+1]=pix[i+1]; out[i+2]=pix[i+2]; out[i+3]=pix[i+3]; }
   }
-  // Flood-fill from edges for enclosed magenta regions
-  const visited = new Uint8Array(w * h);
-  const queue = [];
-  for (let y = 0; y < h; y++) {
-    for (const x of [0, w-1]) {
-      const idx = y * w + x;
-      if (!visited[idx] && out[idx*4+3] > 0) { visited[idx] = 1; queue.push(x, y); }
-    }
-  }
-  for (let x = 0; x < w; x++) {
-    for (const y of [0, h-1]) {
-      const idx = y * w + x;
-      if (!visited[idx] && out[idx*4+3] > 0) { visited[idx] = 1; queue.push(x, y); }
-    }
-  }
-  let qi = 0;
+  const visited = new Uint8Array(w*h), queue = [];
+  for (let y=0;y<h;y++) for (const x of [0,w-1]){ const idx=y*w+x; if(!visited[idx]&&out[idx*4+3]>0){visited[idx]=1;queue.push(x,y);} }
+  for (let x=0;x<w;x++) for (const y of [0,h-1]){ const idx=y*w+x; if(!visited[idx]&&out[idx*4+3]>0){visited[idx]=1;queue.push(x,y);} }
+  let qi=0;
   while (qi < queue.length) {
-    const cx2 = queue[qi++], cy = queue[qi++];
-    for (const [nx, ny] of [[cx2-1,cy],[cx2+1,cy],[cx2,cy-1],[cx2,cy+1]]) {
-      if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
-        const idx = ny * w + nx;
-        if (!visited[idx] && out[idx*4+3] > 0) {
-          const pi = idx * 4;
-          const dr = Math.abs(out[pi] - KEY_COLOR[0]);
-          const dg = Math.abs(out[pi+1] - KEY_COLOR[1]);
-          const db = Math.abs(out[pi+2] - KEY_COLOR[2]);
-          if (dr < KEY_THRESH && dg < KEY_THRESH && db < KEY_THRESH) {
-            out[pi+3] = 0;
-          }
-          visited[idx] = 1;
-          queue.push(nx, ny);
+    const cx2=queue[qi++], cy=queue[qi++];
+    for (const [nx,ny] of [[cx2-1,cy],[cx2+1,cy],[cx2,cy-1],[cx2,cy+1]]) {
+      if (nx>=0&&nx<w&&ny>=0&&ny<h) {
+        const idx=ny*w+nx;
+        if (!visited[idx]&&out[idx*4+3]>0) {
+          const pi=idx*4, dr=Math.abs(out[pi]-KEY_COLOR[0]), dg=Math.abs(out[pi+1]-KEY_COLOR[1]), db=Math.abs(out[pi+2]-KEY_COLOR[2]);
+          if (dr<KEY_THRESH&&dg<KEY_THRESH&&db<KEY_THRESH) out[pi+3]=0;
+          visited[idx]=1; queue.push(nx,ny);
         }
       }
     }
   }
-  d.data.set(out);
-  cx.putImageData(d, 0, 0);
+  d.data.set(out); cx.putImageData(d,0,0);
   return c;
 }
 
-// ── Asset loading ──
+// ── Assets ──
 const ASSETS = {};
 const ASSET_LIST = [
-  { id:"paper-ball", file:"./assets/paper-ball_raw.png", key: true },
-  { id:"trash-can",  file:"./assets/trash-can_raw.png", key: true },
-  { id:"desk-fan",   file:"./assets/desk-fan_raw.png", key: true },
-  { id:"office-bg",  file:"./assets/office-bg_raw.png", key: true },
+  { id:"paper-ball", file:"./assets/paper-ball_raw.png", key:true },
+  { id:"trash-can",  file:"./assets/trash-can_raw.png",  key:true },
+  { id:"desk-fan",   file:"./assets/desk-fan_raw.png",   key:true },
+  { id:"office-bg",  file:"./assets/office-bg_raw.png",  key:true },
 ];
 let assetsLoaded = 0;
 const loadFill = document.getElementById("loadFill");
-
 function loadAssets() {
-  return Promise.all(ASSET_LIST.map(({id, file, key}) =>
+  return Promise.all(ASSET_LIST.map(({id,file,key}) =>
     new Promise((resolve) => {
       const img = new Image();
-      img.onload = () => {
-        if (key) {
-          ASSETS[id] = keyOutImage(img);
-        } else {
-          ASSETS[id] = img;
-        }
-        assetsLoaded++;
-        loadFill.style.width = Math.round(assetsLoaded/ASSET_LIST.length*100)+"%";
-        resolve();
-      };
-      img.onerror = () => { assetsLoaded++; loadFill.style.width = Math.round(assetsLoaded/ASSET_LIST.length*100)+"%"; resolve(); };
+      img.onload = () => { ASSETS[id] = key ? keyOutImage(img) : img; assetsLoaded++; loadFill.style.width=Math.round(assetsLoaded/ASSET_LIST.length*100)+"%"; resolve(); };
+      img.onerror = () => { assetsLoaded++; loadFill.style.width=Math.round(assetsLoaded/ASSET_LIST.length*100)+"%"; resolve(); };
       img.src = file;
     })
   ));
 }
 
+// ── Audio (WebAudio synth, no asset files) ──
+const Sound = (() => {
+  let ctx = null, muted = localStorage.getItem("papertuss_muted") === "1";
+  function ac() { if (!ctx) ctx = new (window.AudioContext||window.webkitAudioContext)(); if (ctx.state==="suspended") ctx.resume(); return ctx; }
+  function tone(freq, dur, type="sine", vol=0.2, slideTo=null) {
+    if (muted) return;
+    const a = ac(), o = a.createOscillator(), g = a.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, a.currentTime);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, a.currentTime + dur);
+    g.gain.setValueAtTime(vol, a.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + dur);
+    o.connect(g); g.connect(a.destination);
+    o.start(); o.stop(a.currentTime + dur);
+  }
+  function noise(dur, vol=0.15) {
+    if (muted) return;
+    const a = ac(), n = a.sampleRate*dur, buf = a.createBuffer(1, n, a.sampleRate), data = buf.getChannelData(0);
+    for (let i=0;i<n;i++) data[i] = (Math.random()*2-1)*(1-i/n);
+    const src = a.createBufferSource(), g = a.createGain(), f = a.createBiquadFilter();
+    src.buffer = buf; f.type="highpass"; f.frequency.value=800;
+    g.gain.setValueAtTime(vol, a.currentTime); g.gain.exponentialRampToValueAtTime(0.001, a.currentTime+dur);
+    src.connect(f); f.connect(g); g.connect(a.destination); src.start();
+  }
+  return {
+    throw_() { tone(420, 0.18, "triangle", 0.18, 180); noise(0.12, 0.08); },
+    score(combo=0) { const base=520+combo*60; tone(base,0.1,"sine",0.22); setTimeout(()=>tone(base*1.5,0.14,"sine",0.22),90); setTimeout(()=>tone(base*2,0.18,"sine",0.18),190); },
+    swish() { noise(0.22, 0.12); },
+    miss() { tone(200, 0.25, "sawtooth", 0.12, 90); },
+    bounce() { tone(160, 0.08, "square", 0.08); },
+    levelup() { [523,659,784,1046].forEach((f,i)=>setTimeout(()=>tone(f,0.18,"triangle",0.2),i*90)); },
+    gameover() { [392,330,262].forEach((f,i)=>setTimeout(()=>tone(f,0.35,"sine",0.18),i*180)); },
+    click() { tone(660, 0.06, "square", 0.12); },
+    toggle() { muted=!muted; localStorage.setItem("papertuss_muted", muted?"1":"0"); if(!muted) tone(660,0.08,"sine",0.15); return muted; },
+    get muted() { return muted; },
+  };
+})();
+
 // ── Constants ──
 const GRAVITY = 980;
-const PIXELS_PER_METER = 120;
 
 // ── Game state ──
 const state = {
-  screen: "menu", // menu | playing | gameover
+  screen: "menu",
   score: 0,
   best: parseInt(localStorage.getItem("papertuss_best") || "0"),
   throws: 10,
   level: 1,
-  wind: { strength: 0.3, dir: -1 }, // -1 left, 1 right, 0 none
-  // Paper
-  paper: { x: 0, y: 0, vx: 0, vy: 0, flying: false, startX: 0, startY: 0 },
-  // Trash can position
-  target: { x: 0, y: 0 },
-  // Fan position
-  fan: { x: 0, y: 0 },
-  // Drag
-  drag: { active: false, startX: 0, startY: 0, endX: 0, endY: 0 },
-  // Animations
+  combo: 0,
+  bestCombo: 0,
+  wind: { strength: 0.3, dir: -1 },
+  paper: { x:0, y:0, vx:0, vy:0, flying:false, startX:0, startY:0, rot:0, spin:0, scored:false },
+  target: { x:0, y:0 },
+  fan: { x:0, y:0 },
+  drag: { active:false, startX:0, startY:0, endX:0, endY:0 },
   trail: [],
-  // Scoring
-  message: "",
-  messageTimer: 0,
-  // Level data
+  particles: [],
+  floatTexts: [],
+  shake: 0,
+  message: "", messageTimer: 0,
+  flashColor: null, flashTimer: 0,
+  windParticles: [],
   levels: [
-    { name: "Easy Office", targetX: 0.55, targetY: 0.38, fanX: 0.85, fanY: 0.50, windRange: [0.1, 0.5] },
-    { name: "Busy Office", targetX: 0.60, targetY: 0.35, fanX: 0.75, fanY: 0.55, windRange: [0.2, 0.7] },
-    { name: "Corner Office", targetX: 0.70, targetY: 0.30, fanX: 0.20, fanY: 0.45, windRange: [0.3, 0.9] },
-    { name: "The Challenge", targetX: 0.80, targetY: 0.25, fanX: 0.50, fanY: 0.60, windRange: [0.4, 1.2] },
+    { name:"Easy Office",   targetX:0.55, targetY:0.40, fanX:0.85, fanY:0.50, windRange:[0.1,0.5] },
+    { name:"Busy Office",   targetX:0.60, targetY:0.36, fanX:0.75, fanY:0.55, windRange:[0.2,0.7] },
+    { name:"Corner Office", targetX:0.70, targetY:0.32, fanX:0.20, fanY:0.45, windRange:[0.3,0.9] },
+    { name:"The Challenge", targetX:0.80, targetY:0.28, fanX:0.50, fanY:0.60, windRange:[0.4,1.2] },
   ],
   windAnim: 0,
+  menuPulse: 0,
 };
 
-// ── CANVAS ──
+// ── Canvas ──
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
-const DPR_CAP = 1.5;
-let W, H;
-
+const DPR_CAP = 2;
+let W, H, BASE;
 function resize() {
   const dpr = Math.min(devicePixelRatio || 1, DPR_CAP);
   W = innerWidth; H = innerHeight;
-  canvas.width = W * dpr; canvas.height = H * dpr;
-  canvas.style.width = W + "px"; canvas.style.height = H + "px";
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  BASE = Math.min(W, H);
+  canvas.width = W*dpr; canvas.height = H*dpr;
+  canvas.style.width = W+"px"; canvas.style.height = H+"px";
+  ctx.setTransform(dpr,0,0,dpr,0,0);
   calcPositions();
 }
 addEventListener("resize", resize); addEventListener("orientationchange", resize);
 
+function sz(v) { return v * (BASE/600); } // scale helper relative to a 600px base
+
 function calcPositions() {
-  const lv = state.levels[Math.min(state.level - 1, state.levels.length - 1)];
-  state.target.x = lv.targetX * W;
-  state.target.y = lv.targetY * H;
-  state.fan.x = lv.fanX * W;
-  state.fan.y = lv.fanY * H;
-  state.paper.x = 0.18 * W;
-  state.paper.y = 0.82 * H;
-  state.paper.startX = state.paper.x;
-  state.paper.startY = state.paper.y;
+  const lv = state.levels[Math.min(state.level-1, state.levels.length-1)];
+  state.target.x = lv.targetX*W; state.target.y = lv.targetY*H;
+  state.fan.x = lv.fanX*W; state.fan.y = lv.fanY*H;
+  state.paper.x = 0.18*W; state.paper.y = 0.82*H;
+  state.paper.startX = state.paper.x; state.paper.startY = state.paper.y;
 }
 
 // ── Input ──
-let pointer = { x: 0, y: 0, down: false };
-
 function getPos(e) {
   const rect = canvas.getBoundingClientRect();
-  return { x: (e.clientX || e.touches?.[0]?.clientX || 0) - rect.left, y: (e.clientY || e.touches?.[0]?.clientY || 0) - rect.top };
+  return { x:(e.clientX ?? e.touches?.[0]?.clientX ?? 0)-rect.left, y:(e.clientY ?? e.touches?.[0]?.clientY ?? 0)-rect.top };
 }
-
+function inButton(p) {
+  const b = state._btn;
+  return b && p.x>b.x && p.x<b.x+b.w && p.y>b.y && p.y<b.y+b.h;
+}
 function pointerDown(e) {
   e.preventDefault();
-  if (state.screen === "menu") {
-    state.screen = "playing";
-    initLevel();
-    return;
-  }
-  if (state.screen === "gameover") {
-    state.score = 0; state.throws = 10; state.level = 1;
-    state.screen = "playing";
-    initLevel();
-    return;
-  }
-  if (state.paper.flying || state.messageTimer > 0) return;
+  Sound; // ensure audio context unlock on gesture
   const p = getPos(e);
-  // Check if near paper
-  const dx = p.x - state.paper.x;
-  const dy = p.y - state.paper.y;
-  if (Math.sqrt(dx*dx + dy*dy) < 60) {
+  if (state.screen === "menu") { if(inButton(p)){ Sound.click(); startGame(); } return; }
+  if (state.screen === "gameover") { if(inButton(p)){ Sound.click(); startGame(); } return; }
+  if (state.paper.flying || state.messageTimer > 0) return;
+  const dx = p.x-state.paper.x, dy = p.y-state.paper.y;
+  if (Math.sqrt(dx*dx+dy*dy) < sz(90)) {
     state.drag.active = true;
-    state.drag.startX = state.paper.x;
-    state.drag.startY = state.paper.y;
-    state.drag.endX = p.x;
-    state.drag.endY = p.y;
+    state.drag.startX = state.paper.x; state.drag.startY = state.paper.y;
+    state.drag.endX = p.x; state.drag.endY = p.y;
   }
 }
-
 function pointerMove(e) {
   e.preventDefault();
   const p = getPos(e);
-  if (state.drag.active && !state.paper.flying) {
-    state.drag.endX = p.x;
-    state.drag.endY = p.y;
-  }
+  if (state.drag.active && !state.paper.flying) { state.drag.endX = p.x; state.drag.endY = p.y; }
 }
-
 function pointerUp(e) {
   e.preventDefault();
   if (state.drag.active && !state.paper.flying) {
-    // Calculate throw velocity
-    const dx = state.drag.endX - state.drag.startX;
-    const dy = state.drag.endY - state.drag.startY;
-    const power = Math.min(Math.sqrt(dx*dx + dy*dy) / 8, 12);
-    const angle = Math.atan2(dy, dx);
-    // Reverse: pull back = throw forward
-    state.paper.vx = -Math.cos(angle) * power * 60;
-    state.paper.vy = -Math.sin(angle) * power * 60;
-    state.paper.flying = true;
+    const dx = state.drag.endX-state.drag.startX, dy = state.drag.endY-state.drag.startY;
+    const len = Math.sqrt(dx*dx+dy*dy);
     state.drag.active = false;
+    if (len < sz(12)) return; // tap, not a throw
+    const power = Math.min(len/8, 13);
+    const angle = Math.atan2(dy, dx);
+    state.paper.vx = -Math.cos(angle)*power*60;
+    state.paper.vy = -Math.sin(angle)*power*60;
+    state.paper.flying = true;
+    state.paper.scored = false;
+    state.paper.spin = (-state.paper.vx*0.0008) + (Math.random()-0.5)*0.1;
     state.trail = [];
+    Sound.throw_();
   }
 }
-
 canvas.addEventListener("mousedown", pointerDown);
 canvas.addEventListener("mousemove", pointerMove);
 canvas.addEventListener("mouseup", pointerUp);
@@ -243,443 +231,470 @@ canvas.addEventListener("touchstart", pointerDown, {passive:false});
 canvas.addEventListener("touchmove", pointerMove, {passive:false});
 canvas.addEventListener("touchend", pointerUp, {passive:false});
 
-// ── Level init ──
+// Keyboard: Space restarts on menu/gameover
+addEventListener("keydown", (e) => {
+  if (e.code === "Space" && (state.screen==="menu"||state.screen==="gameover")) { e.preventDefault(); Sound.click(); startGame(); }
+  if (e.code === "KeyM") toggleMute();
+});
+
+const muteBtn = document.getElementById("mute");
+function refreshMuteIcon(){ muteBtn.textContent = Sound.muted ? "🔇" : "🔊"; }
+function toggleMute(){ Sound.toggle(); refreshMuteIcon(); }
+muteBtn.addEventListener("click", (e)=>{ e.stopPropagation(); toggleMute(); });
+
+function startGame() {
+  state.score = 0; state.throws = 10; state.level = 1; state.combo = 0;
+  state.screen = "playing";
+  state.particles = []; state.floatTexts = [];
+  initLevel();
+}
+
 function initLevel() {
-  const lv = state.levels[Math.min(state.level - 1, state.levels.length - 1)];
-  state.wind.strength = lv.windRange[0] + Math.random() * (lv.windRange[1] - lv.windRange[0]);
+  const lv = state.levels[Math.min(state.level-1, state.levels.length-1)];
+  state.wind.strength = lv.windRange[0] + Math.random()*(lv.windRange[1]-lv.windRange[0]);
   state.wind.dir = Math.random() > 0.4 ? 1 : -1;
-  if (state.level > 2) state.wind.dir = 1; // progressively harder
+  if (state.level > 2) state.wind.dir = 1;
   calcPositions();
-  state.paper.flying = false;
-  state.paper.vx = 0; state.paper.vy = 0;
-  state.paper.x = state.paper.startX;
-  state.paper.y = state.paper.startY;
-  state.trail = [];
-  state.message = "";
-  state.messageTimer = 0;
+  Object.assign(state.paper, { flying:false, vx:0, vy:0, rot:0, spin:0, scored:false, x:state.paper.startX, y:state.paper.startY });
+  state.trail = []; state.message = ""; state.messageTimer = 0;
+}
+
+function newThrowWind() {
+  const lv = state.levels[Math.min(state.level-1, state.levels.length-1)];
+  state.wind.strength = lv.windRange[0] + Math.random()*(lv.windRange[1]-lv.windRange[0]);
+  if (Math.random() > 0.45) state.wind.dir *= -1;
+}
+
+// ── Particles ──
+function burst(x, y, color, n=14, speed=4, spread=1) {
+  for (let i=0;i<n;i++) {
+    const a = Math.random()*Math.PI*2;
+    const s = speed*(0.4+Math.random()*spread);
+    state.particles.push({ x, y, vx:Math.cos(a)*s*60, vy:Math.sin(a)*s*60-100, life:1, color, size:sz(2+Math.random()*4), rot:Math.random()*6, vr:(Math.random()-0.5)*10, kind:Math.random()<0.5?"rect":"circle" });
+  }
+}
+function floatText(x, y, txt, color="#ffd54a", size=22) {
+  state.floatTexts.push({ x, y, txt, color, life:1, size:sz(size) });
 }
 
 // ── Update ──
 function update(dt) {
-  if (state.screen !== "playing") return;
+  state.windAnim += dt*0.003;
+  state.menuPulse += dt*0.004;
+  if (state.shake > 0) state.shake = Math.max(0, state.shake - dt*0.01);
+  if (state.flashTimer > 0) state.flashTimer -= dt;
 
-  state.windAnim += dt * 0.003;
+  // particles
+  for (const p of state.particles) {
+    p.vy += GRAVITY*0.5*dt/1000;
+    p.x += p.vx*dt/1000; p.y += p.vy*dt/1000;
+    p.rot += p.vr*dt/1000; p.life -= dt*0.0015;
+  }
+  state.particles = state.particles.filter(p => p.life > 0);
+  for (const f of state.floatTexts) { f.y -= dt*0.04; f.life -= dt*0.0012; }
+  state.floatTexts = state.floatTexts.filter(f => f.life > 0);
+
+  // wind particles (ambient)
+  if (state.screen === "playing" && state.windParticles.length < 18 && Math.random() < 0.3) {
+    state.windParticles.push({ x: state.wind.dir>0 ? -10 : W+10, y: Math.random()*H*0.7+H*0.1, life:1 });
+  }
+  for (const wp of state.windParticles) { wp.x += state.wind.dir*state.wind.strength*120*dt/1000; wp.life -= dt*0.0006; }
+  state.windParticles = state.windParticles.filter(wp => wp.life > 0 && wp.x>-20 && wp.x<W+20);
+
+  if (state.screen !== "playing") return;
 
   if (state.messageTimer > 0) {
     state.messageTimer -= dt;
     if (state.messageTimer <= 0) {
       state.message = "";
-      state.messageTimer = 0;
-      // Next throw
       if (state.throws > 0) {
-        state.paper.flying = false;
-        state.paper.x = state.paper.startX;
-        state.paper.y = state.paper.startY;
-        state.paper.vx = 0; state.paper.vy = 0;
+        Object.assign(state.paper, { flying:false, x:state.paper.startX, y:state.paper.startY, vx:0, vy:0, rot:0, scored:false });
         state.trail = [];
-        // New wind each throw
-        const lv = state.levels[Math.min(state.level - 1, state.levels.length - 1)];
-        state.wind.strength = lv.windRange[0] + Math.random() * (lv.windRange[1] - lv.windRange[0]);
-        if (Math.random() > 0.4) state.wind.dir *= -1;
+        newThrowWind();
       }
     }
     return;
   }
 
   if (state.paper.flying) {
-    // Physics
-    const windForce = state.wind.dir * state.wind.strength * 180;
-    state.paper.vx += windForce * dt / 1000;
-    state.paper.vy += GRAVITY * dt / 1000;
-    state.paper.x += state.paper.vx * dt / 1000;
-    state.paper.y += state.paper.vy * dt / 1000;
+    const windForce = state.wind.dir*state.wind.strength*180;
+    state.paper.vx += windForce*dt/1000;
+    state.paper.vy += GRAVITY*dt/1000;
+    state.paper.x += state.paper.vx*dt/1000;
+    state.paper.y += state.paper.vy*dt/1000;
+    state.paper.rot += state.paper.spin*dt/16;
 
-    // Trail
-    state.trail.push({ x: state.paper.x, y: state.paper.y, life: 1 });
-    if (state.trail.length > 20) state.trail.shift();
-    state.trail.forEach(t => t.life -= dt * 0.002);
+    state.trail.push({ x:state.paper.x, y:state.paper.y, life:1 });
+    if (state.trail.length > 22) state.trail.shift();
+    for (const t of state.trail) t.life -= dt*0.002;
     state.trail = state.trail.filter(t => t.life > 0);
 
-    // Check collision with trash can
-    const tW = 60;
-    const tH = 80;
-    if (state.paper.x > state.target.x - tW/2 && state.paper.x < state.target.x + tW/2 &&
-        state.paper.y > state.target.y - tH/2 && state.paper.y < state.target.y + tH/2) {
-      // SCORE!
-      state.score++;
-      if (state.score > state.best) {
-        state.best = state.score;
-        localStorage.setItem("papertuss_best", state.best);
-      }
-      state.message = "BASKET! " + state.score + " pts!";
-      state.messageTimer = 1500;
-      state.throws--;
-      // Level up every 3 baskets
-      if (state.score % 3 === 0 && state.level < state.levels.length) {
-        state.level++;
-        state.throws += 3; // bonus throws
-      }
+    // Trash can hit-box (rim)
+    const rimW = sz(50), rimY = state.target.y - sz(34);
+    const inRimX = state.paper.x > state.target.x-rimW/2 && state.paper.x < state.target.x+rimW/2;
+    const crossingRim = state.paper.vy > 0 && state.paper.y > rimY-sz(8) && state.paper.y < rimY+sz(22);
+
+    if (!state.paper.scored && inRimX && crossingRim) {
+      score();
       return;
     }
 
-    // Out of bounds
-    if (state.paper.y > H + 50 || state.paper.x < -50 || state.paper.x > W + 50) {
-      state.message = "Miss!";
-      state.messageTimer = 1000;
-      state.throws--;
-      if (state.throws <= 0) {
-        state.screen = "gameover";
+    // rim bounce (near miss off the edge)
+    if (!state.paper.scored && state.paper.vy>0 && Math.abs(state.paper.y-rimY)<sz(10)) {
+      const edge = Math.abs(state.paper.x-state.target.x);
+      if (edge>rimW/2 && edge<rimW/2+sz(14)) {
+        state.paper.vx *= -0.4; state.paper.vy *= -0.45; state.paper.spin*=-1;
+        Sound.bounce(); state.shake = Math.max(state.shake, 4);
       }
     }
+
+    if (state.paper.y > H+60 || state.paper.x < -60 || state.paper.x > W+60) {
+      miss();
+    }
+  }
+}
+
+function score() {
+  state.paper.scored = true;
+  state.combo++;
+  if (state.combo > state.bestCombo) state.bestCombo = state.combo;
+  const comboBonus = Math.max(0, state.combo-1);
+  const pts = 1 + comboBonus;
+  state.score += pts;
+  if (state.score > state.best) { state.best = state.score; localStorage.setItem("papertuss_best", state.best); }
+  Sound.score(state.combo); Sound.swish();
+  state.shake = 9;
+  state.flashColor = "rgba(46,204,113,0.18)"; state.flashTimer = 200;
+  burst(state.target.x, state.target.y-sz(30), "#2ecc71", 22, 5, 1.4);
+  burst(state.target.x, state.target.y-sz(30), "#ffffff", 10, 3, 1);
+  const label = state.combo>=3 ? `${STR.basket} x${state.combo}!` : STR.basket;
+  floatText(state.target.x, state.target.y-sz(50), `+${pts}`, "#2ecc71", 30);
+  if (state.combo >= 2) floatText(state.target.x, state.target.y-sz(82), `COMBO x${state.combo}`, "#ffd54a", 18);
+  state.message = label; state.messageTimer = 1200;
+  state.throws--;
+  // level up every 3 baskets
+  if (state.score >= state.level*3 && state.level < state.levels.length) {
+    state.level++; state.throws += 3;
+    setTimeout(()=>Sound.levelup(), 250);
+    floatText(W/2, H*0.4, "LEVEL UP!", "#5dc8ff", 26);
+  }
+}
+
+function miss() {
+  state.combo = 0;
+  Sound.miss();
+  burst(state.paper.x, Math.min(state.paper.y,H-sz(40)), "#c9c2b0", 10, 3, 1);
+  state.message = STR.miss; state.messageTimer = 900;
+  state.throws--;
+  if (state.throws <= 0) {
+    setTimeout(()=>Sound.gameover(), 300);
+    state.screen = "gameover";
   }
 }
 
 // ── Render ──
 function render() {
-  ctx.clearRect(0, 0, W, H);
-
-  if (state.screen === "menu") {
-    renderMenu();
-    return;
+  ctx.save();
+  if (state.shake > 0) {
+    const s = state.shake;
+    ctx.translate((Math.random()-0.5)*s, (Math.random()-0.5)*s);
   }
-  if (state.screen === "gameover") {
-    renderGameOver();
-    return;
-  }
+  ctx.clearRect(-20, -20, W+40, H+40);
 
+  if (state.screen === "menu") { renderScene(true); renderMenu(); renderFX(); ctx.restore(); return; }
+  if (state.screen === "gameover") { renderScene(false); renderFX(); renderGameOver(); ctx.restore(); return; }
+
+  renderScene(false);
+  renderAim();
+  renderPaper();
+  renderFX();
+  renderHUD();
+  renderMessage();
+  ctx.restore();
+}
+
+function renderScene(menuDim) {
   // Background
   if (ASSETS["office-bg"]) {
     ctx.drawImage(ASSETS["office-bg"], 0, 0, W, H);
   } else {
-    // Fallback background
-    const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, "#d4c5a9");
-    grad.addColorStop(0.3, "#c8b999");
-    grad.addColorStop(0.5, "#b8a88a");
-    grad.addColorStop(0.7, "#8a7a6a");
-    grad.addColorStop(1, "#6b5b4b");
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, W, H);
+    const grad = ctx.createLinearGradient(0,0,0,H);
+    grad.addColorStop(0,"#d9cbb0"); grad.addColorStop(0.5,"#bdae90"); grad.addColorStop(1,"#6f5f4d");
+    ctx.fillStyle = grad; ctx.fillRect(0,0,W,H);
   }
+  // subtle vignette
+  const vg = ctx.createRadialGradient(W/2,H*0.45,BASE*0.2,W/2,H*0.5,BASE*0.85);
+  vg.addColorStop(0,"rgba(0,0,0,0)"); vg.addColorStop(1,"rgba(0,0,0,0.28)");
+  ctx.fillStyle = vg; ctx.fillRect(0,0,W,H);
 
   // Floor
-  ctx.fillStyle = "#8b7355";
-  ctx.fillRect(0, H - 40, W, 40);
+  const fg = ctx.createLinearGradient(0,H-sz(50),0,H);
+  fg.addColorStop(0,"#7d6549"); fg.addColorStop(1,"#5d4a35");
+  ctx.fillStyle = fg; ctx.fillRect(0, H-sz(46), W, sz(46));
 
-  // Trash can
+  if (menuDim) { ctx.fillStyle = "rgba(16,20,30,0.55)"; ctx.fillRect(0,0,W,H); return; }
+
+  // wind particles (behind objects)
+  for (const wp of state.windParticles) {
+    ctx.strokeStyle = `rgba(170,221,255,${wp.life*0.25})`;
+    ctx.lineWidth = sz(1.5);
+    ctx.beginPath(); ctx.moveTo(wp.x, wp.y); ctx.lineTo(wp.x - state.wind.dir*sz(14), wp.y); ctx.stroke();
+  }
+
+  // Trash can + shadow
+  const tSize = Math.min(W*0.12, sz(95));
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.22)";
+  ctx.beginPath(); ctx.ellipse(state.target.x, state.target.y+sz(4), tSize*0.42, sz(9), 0, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
   if (ASSETS["trash-can"]) {
-    const tSize = Math.min(W * 0.1, 80);
-    ctx.drawImage(ASSETS["trash-can"], state.target.x - tSize/2, state.target.y - tSize, tSize, tSize * 1.3);
+    ctx.drawImage(ASSETS["trash-can"], state.target.x-tSize/2, state.target.y-tSize, tSize, tSize*1.25);
   } else {
-    // Fallback
-    ctx.fillStyle = "#e67e22";
-    ctx.fillRect(state.target.x - 30, state.target.y - 60, 60, 60);
-    ctx.fillStyle = "#c0392b";
-    ctx.fillRect(state.target.x - 28, state.target.y - 60, 56, 8);
+    ctx.fillStyle="#3b82c4"; ctx.fillRect(state.target.x-sz(28), state.target.y-sz(60), sz(56), sz(60));
+    ctx.fillStyle="#2a5e90"; ctx.fillRect(state.target.x-sz(30), state.target.y-sz(60), sz(60), sz(8));
   }
 
   // Fan
-  if (ASSETS["desk-fan"]) {
-    const fSize = Math.min(W * 0.08, 64);
-    // Oscillation
-    const osc = Math.sin(state.windAnim) * 15;
-    ctx.save();
-    ctx.translate(state.fan.x, state.fan.y);
-    ctx.rotate(osc * Math.PI / 180);
-    ctx.drawImage(ASSETS["desk-fan"], -fSize/2, -fSize/2, fSize, fSize);
-    ctx.restore();
-  } else {
-    ctx.fillStyle = "#aaa";
-    ctx.beginPath();
-    ctx.arc(state.fan.x, state.fan.y, 20, 0, Math.PI*2);
-    ctx.stroke();
-  }
+  const fSize = Math.min(W*0.1, sz(78));
+  const osc = Math.sin(state.windAnim)*15;
+  ctx.save();
+  ctx.translate(state.fan.x, state.fan.y);
+  ctx.rotate(osc*Math.PI/180);
+  if (ASSETS["desk-fan"]) ctx.drawImage(ASSETS["desk-fan"], -fSize/2, -fSize/2, fSize, fSize);
+  else { ctx.strokeStyle="#aaa"; ctx.lineWidth=sz(3); ctx.beginPath(); ctx.arc(0,0,sz(22),0,Math.PI*2); ctx.stroke(); }
+  ctx.restore();
+}
 
-  // Wind indicator
-  renderWind();
+function renderAim() {
+  if (!(state.drag.active && !state.paper.flying)) return;
+  const dx = state.drag.endX-state.drag.startX, dy = state.drag.endY-state.drag.startY;
+  const len = Math.sqrt(dx*dx+dy*dy);
+  const projAngle = Math.atan2(dy, dx);
+  const power = Math.min(len/8, 13);
 
-  // Trajectory trail
+  // trajectory preview (dotted)
+  ctx.strokeStyle = "rgba(255,255,255,0.28)";
+  ctx.lineWidth = sz(2); ctx.setLineDash([sz(2), sz(7)]);
+  ctx.beginPath();
+  let px=state.paper.startX, py=state.paper.startY;
+  let pvx=-Math.cos(projAngle)*power*60, pvy=-Math.sin(projAngle)*power*60;
+  ctx.moveTo(px,py);
+  const windF = state.wind.dir*state.wind.strength*180;
+  for (let i=0;i<55;i++){ pvx+=windF*0.016; pvy+=GRAVITY*0.016; px+=pvx*0.016; py+=pvy*0.016; ctx.lineTo(px,py); if(py>H)break; }
+  ctx.stroke(); ctx.setLineDash([]);
+
+  // power meter ring around paper
+  const pct = Math.min(len/130, 1);
+  ctx.beginPath();
+  ctx.arc(state.paper.startX, state.paper.startY, sz(26), -Math.PI/2, -Math.PI/2 + pct*Math.PI*2);
+  ctx.strokeStyle = pct>0.7?"#e74c3c":pct>0.4?"#f39c12":"#2ecc71";
+  ctx.lineWidth = sz(4); ctx.lineCap="round"; ctx.stroke(); ctx.lineCap="butt";
+}
+
+function renderPaper() {
+  if (state.messageTimer > 0) return;
+  // trail
   for (const t of state.trail) {
-    const alpha = t.life * 0.5;
-    ctx.fillStyle = `rgba(200,200,200,${alpha})`;
-    ctx.beginPath();
-    ctx.arc(t.x, t.y, 3 * t.life, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.fillStyle = `rgba(235,232,222,${t.life*0.4})`;
+    ctx.beginPath(); ctx.arc(t.x, t.y, sz(4)*t.life, 0, Math.PI*2); ctx.fill();
   }
+  const pSize = sz(34);
+  // shadow on floor when low
+  ctx.save();
+  ctx.translate(state.paper.x, state.paper.y);
+  ctx.rotate(state.paper.rot);
+  if (ASSETS["paper-ball"]) ctx.drawImage(ASSETS["paper-ball"], -pSize/2, -pSize/2, pSize, pSize);
+  else { ctx.fillStyle="#fff"; ctx.beginPath(); ctx.arc(0,0,sz(14),0,Math.PI*2); ctx.fill(); ctx.strokeStyle="#ccc"; ctx.stroke(); }
+  ctx.restore();
+}
 
-  // Drag aim line
-  if (state.drag.active && !state.paper.flying) {
-    const dx = state.drag.endX - state.drag.startX;
-    const dy = state.drag.endY - state.drag.startY;
-    const len = Math.sqrt(dx*dx + dy*dy);
-
-    // Aim line (dotted)
-    ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = "rgba(255,255,255,0.4)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(state.paper.startX, state.paper.startY);
-    // Projection line in opposite direction
-    const projLen = Math.min(len * 0.6, 150);
-    const projAngle = Math.atan2(dy, dx);
-    ctx.lineTo(state.paper.startX - Math.cos(projAngle) * projLen, state.paper.startY - Math.sin(projAngle) * projLen);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Trajectory preview
-    const power = Math.min(len / 8, 12);
-    ctx.strokeStyle = "rgba(255,255,255,0.15)";
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([2, 6]);
-    ctx.beginPath();
-    let px = state.paper.startX, py = state.paper.startY;
-    let pvx = -Math.cos(projAngle) * power * 60;
-    let pvy = -Math.sin(projAngle) * power * 60;
-    ctx.moveTo(px, py);
-    const windF = state.wind.dir * state.wind.strength * 180;
-    for (let i = 0; i < 40; i++) {
-      pvx += windF * 0.016;
-      pvy += GRAVITY * 0.016;
-      px += pvx * 0.016;
-      py += pvy * 0.016;
-      ctx.lineTo(px, py);
-      if (py > H) break;
-    }
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Power indicator
-    const pct = Math.min(len / 120, 1);
-    const barW = 80, barH = 10;
-    ctx.fillStyle = "rgba(0,0,0,0.5)";
-    ctx.roundRect(W/2 - barW/2 - 2, H - 60 - barH - 2, barW + 4, barH + 4, 4);
-    ctx.fill();
-    ctx.fillStyle = "#444";
-    ctx.roundRect(W/2 - barW/2, H - 60 - barH, barW, barH, 3);
-    ctx.fill();
-    ctx.fillStyle = pct > 0.7 ? "#e74c3c" : pct > 0.4 ? "#f39c12" : "#2ecc71";
-    ctx.roundRect(W/2 - barW/2, H - 60 - barH, barW * pct, barH, 3);
-    ctx.fill();
+function renderFX() {
+  for (const p of state.particles) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+    ctx.fillStyle = p.color;
+    if (p.kind==="rect") ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size);
+    else { ctx.beginPath(); ctx.arc(0,0,p.size/2,0,Math.PI*2); ctx.fill(); }
+    ctx.restore();
   }
-
-  // Paper ball
-  if (ASSETS["paper-ball"] && !state.messageTimer) {
-    const pSize = 28;
-    ctx.drawImage(ASSETS["paper-ball"], state.paper.x - pSize/2, state.paper.y - pSize/2, pSize, pSize);
-  } else if (!state.messageTimer) {
-    ctx.fillStyle = "#fff";
-    ctx.beginPath();
-    ctx.arc(state.paper.x, state.paper.y, 12, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#ccc";
-    ctx.lineWidth = 1;
-    ctx.stroke();
+  ctx.globalAlpha = 1;
+  for (const f of state.floatTexts) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, f.life*1.5));
+    ctx.fillStyle = f.color; ctx.font = `bold ${f.size}px system-ui,sans-serif`;
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.lineWidth = sz(3); ctx.strokeStyle = "rgba(0,0,0,0.4)";
+    ctx.strokeText(f.txt, f.x, f.y); ctx.fillText(f.txt, f.x, f.y);
+    ctx.restore();
   }
-
-  // Score HUD
-  renderHUD();
-
-  // Message
-  if (state.message && state.messageTimer > 0) {
-    ctx.fillStyle = "rgba(0,0,0,0.6)";
-    ctx.roundRect(W/2 - 120, H/2 - 30, 240, 60, 12);
-    ctx.fill();
-    ctx.fillStyle = "#ffd700";
-    ctx.font = "bold 22px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(state.message, W/2, H/2);
+  ctx.globalAlpha = 1;
+  // screen flash
+  if (state.flashTimer > 0 && state.flashColor) {
+    ctx.fillStyle = state.flashColor.replace(/[\d.]+\)$/, (state.flashTimer/200*0.18).toFixed(3)+")");
+    ctx.fillRect(0,0,W,H);
   }
 }
 
-function renderMenu() {
-  // Background
-  if (ASSETS["office-bg"]) {
-    ctx.drawImage(ASSETS["office-bg"], 0, 0, W, H);
-    ctx.fillStyle = "rgba(0,0,0,0.5)";
-    ctx.fillRect(0, 0, W, H);
-  } else {
-    ctx.fillStyle = "#2c3e50";
-    ctx.fillRect(0, 0, W, H);
-  }
-
-  ctx.fillStyle = "#fff";
-  ctx.font = "bold 48px sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("PAPER TUSS", W/2, H * 0.25);
-
-  ctx.font = "18px sans-serif";
-  ctx.fillStyle = "#bbb";
-  ctx.fillText("Drag & toss the paper into the bin!", W/2, H * 0.36);
-
-  // Play button
-  const bx = W/2 - 80, by = H * 0.48, bw = 160, bh = 50;
-  ctx.fillStyle = "#e67e22";
-  ctx.roundRect(bx, by, bw, bh, 10);
-  ctx.fill();
-  ctx.fillStyle = "#fff";
-  ctx.font = "bold 20px sans-serif";
-  ctx.fillText("PLAY", W/2, by + bh/2);
-
-  // Stats
-  ctx.fillStyle = "#999";
-  ctx.font = "14px sans-serif";
-  ctx.fillText("Best: " + state.best + " pts", W/2, H * 0.62);
-
-  // Instructions
-  ctx.fillStyle = "#777";
-  ctx.font = "13px sans-serif";
-  ctx.fillText("← Drag back to aim & power →", W/2, H * 0.72);
-  ctx.fillText("Watch out for the fan's wind!", W/2, H * 0.77);
+// Rounded panel helper
+function panel(x,y,w,h,r,fill="rgba(15,20,32,0.62)") {
+  ctx.fillStyle = fill; ctx.beginPath(); ctx.roundRect(x,y,w,h,r); ctx.fill();
 }
 
-function renderGameOver() {
-  ctx.fillStyle = "rgba(0,0,0,0.7)";
-  ctx.fillRect(0, 0, W, H);
-
-  ctx.fillStyle = "#ff6b35";
-  ctx.font = "bold 40px sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("GAME OVER!", W/2, H * 0.25);
-
-  ctx.fillStyle = "#fff";
-  ctx.font = "24px sans-serif";
-  ctx.fillText("Score: " + state.score, W/2, H * 0.38);
-
-  if (state.score >= state.best && state.score > 0) {
-    ctx.fillStyle = "#ffd700";
-    ctx.font = "18px sans-serif";
-    ctx.fillText("NEW BEST!", W/2, H * 0.46);
-  }
-
-  // Restart button
-  const bx = W/2 - 80, by = H * 0.55, bw = 160, bh = 50;
-  ctx.fillStyle = "#e67e22";
-  ctx.roundRect(bx, by, bw, bh, 10);
-  ctx.fill();
-  ctx.fillStyle = "#fff";
-  ctx.font = "bold 20px sans-serif";
-  ctx.fillText("PLAY AGAIN", W/2, by + bh/2);
-}
-
-function renderWind() {
-  const cx = W/2, cy = 50;
-  // Wind arrow
-  const arrowLen = 40 + state.wind.strength * 30;
-  ctx.fillStyle = "rgba(0,0,0,0.5)";
-  ctx.roundRect(cx - 60 - 4, cy - 18, 120 + 8, 36, 8);
-  ctx.fill();
-
-  ctx.fillStyle = "#aaddff";
-  ctx.font = "12px sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("WIND", cx, cy);
-
-  const arrowX = state.wind.dir * arrowLen;
-  ctx.strokeStyle = "rgba(170, 221, 255, 0.7)";
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(cx, cy + 8);
-  ctx.lineTo(cx + arrowX, cy + 8);
-  ctx.stroke();
-
-  // Arrow head
-  const headSize = 8;
-  const headDir = state.wind.dir > 0 ? 1 : -1;
-  ctx.beginPath();
-  ctx.moveTo(cx + arrowX, cy + 8);
-  ctx.lineTo(cx + arrowX - headDir * headSize, cy + 8 - headSize/2);
-  ctx.lineTo(cx + arrowX - headDir * headSize, cy + 8 + headSize/2);
-  ctx.closePath();
-  ctx.fillStyle = "rgba(170, 221, 255, 0.7)";
-  ctx.fill();
-
-  ctx.fillStyle = "rgba(170, 221, 255, 0.5)";
-  ctx.font = "11px sans-serif";
-  ctx.fillText(state.wind.strength.toFixed(2), cx, cy + 24);
+function renderWindBadge() {
+  const cx = W/2, cy = sz(34), bw = sz(150), bh = sz(46);
+  panel(cx-bw/2, cy-bh/2, bw, bh, sz(10));
+  ctx.fillStyle = "#9fd3ff"; ctx.font = `bold ${sz(11)}px system-ui`; ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.fillText(STR.wind.toUpperCase(), cx, cy-sz(11));
+  const arrowLen = sz(35) + state.wind.strength*sz(28);
+  const ax = state.wind.dir*arrowLen, ay = cy+sz(8);
+  ctx.strokeStyle="#7ec5ff"; ctx.lineWidth=sz(3); ctx.lineCap="round";
+  ctx.beginPath(); ctx.moveTo(cx,ay); ctx.lineTo(cx+ax,ay); ctx.stroke();
+  const hd = state.wind.dir>0?1:-1, hs=sz(7);
+  ctx.beginPath(); ctx.moveTo(cx+ax,ay); ctx.lineTo(cx+ax-hd*hs,ay-hs*0.6); ctx.lineTo(cx+ax-hd*hs,ay+hs*0.6); ctx.closePath(); ctx.fillStyle="#7ec5ff"; ctx.fill();
+  ctx.lineCap="butt";
 }
 
 function renderHUD() {
-  const lv = state.levels[Math.min(state.level - 1, state.levels.length - 1)];
+  const lv = state.levels[Math.min(state.level-1, state.levels.length-1)];
+  // Score panel
+  const pw = sz(132), ph = sz(58);
+  panel(sz(10), sz(10), pw, ph, sz(10));
+  ctx.fillStyle="#ffd54a"; ctx.font=`bold ${sz(22)}px system-ui`; ctx.textAlign="left"; ctx.textBaseline="alphabetic";
+  ctx.fillText(state.score, sz(20), sz(40));
+  ctx.fillStyle="#8b97ad"; ctx.font=`${sz(12)}px system-ui`;
+  ctx.fillText(`${STR.best}: ${state.best}`, sz(20), sz(58));
+  // combo pill
+  if (state.combo >= 2) {
+    const cw = sz(70);
+    const pulse = 1 + Math.sin(state.windAnim*4)*0.04;
+    panel(sz(10)+pw+sz(8), sz(10), cw, ph, sz(10), "rgba(255,150,30,0.85)");
+    ctx.fillStyle="#fff"; ctx.font=`bold ${sz(18*pulse)}px system-ui`; ctx.textAlign="center";
+    ctx.fillText(`x${state.combo}`, sz(10)+pw+sz(8)+cw/2, sz(34));
+    ctx.font=`${sz(9)}px system-ui`; ctx.fillText("COMBO", sz(10)+pw+sz(8)+cw/2, sz(50));
+  }
+  // Level + throws (right)
+  const rw = sz(150);
+  panel(W-rw-sz(10), sz(10), rw, ph, sz(10));
+  ctx.fillStyle="#e6e9f0"; ctx.font=`bold ${sz(15)}px system-ui`; ctx.textAlign="right";
+  ctx.fillText(lv.name, W-sz(20), sz(34));
+  // throws as dots
+  ctx.font=`${sz(12)}px system-ui`; ctx.fillStyle="#8b97ad";
+  ctx.fillText(`${STR.throws}: ${state.throws}`, W-sz(20), sz(52));
 
-  // Score panel (top left)
-  ctx.fillStyle = "rgba(0,0,0,0.5)";
-  ctx.roundRect(8, 8, 120, 60, 8);
-  ctx.fill();
-
-  ctx.fillStyle = "#ffd700";
-  ctx.font = "bold 20px sans-serif";
-  ctx.textAlign = "left";
-  ctx.textBaseline = "top";
-  ctx.fillText("Score: " + state.score, 16, 14);
-
-  ctx.fillStyle = "#999";
-  ctx.font = "12px sans-serif";
-  ctx.fillText("Best: " + state.best, 16, 40);
-
-  // Level and throws (top right)
-  ctx.fillStyle = "rgba(0,0,0,0.5)";
-  ctx.roundRect(W - 148, 8, 140, 60, 8);
-  ctx.fill();
-
-  ctx.fillStyle = "#ddd";
-  ctx.font = "bold 16px sans-serif";
-  ctx.textAlign = "right";
-  ctx.fillText(lv.name, W - 16, 14);
-
-  ctx.fillStyle = "#bbb";
-  ctx.font = "14px sans-serif";
-  ctx.fillText("Throws: " + state.throws, W - 16, 40);
+  renderWindBadge();
 }
 
-// ── roundRect polyfill for older browsers ──
+function renderMessage() {
+  if (!(state.message && state.messageTimer > 0)) return;
+  const t = state.messageTimer/1200;
+  const scale = 1 + (1-Math.min(1,t*2))*0.3;
+  ctx.save();
+  ctx.translate(W/2, H*0.42);
+  ctx.scale(scale, scale);
+  ctx.globalAlpha = Math.min(1, t*3);
+  const isBasket = state.message.includes(STR.basket);
+  ctx.fillStyle = isBasket ? "#2ecc71" : "#ff7a5c";
+  ctx.font = `bold ${sz(34)}px system-ui`; ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.lineWidth = sz(5); ctx.strokeStyle="rgba(0,0,0,0.45)";
+  ctx.strokeText(state.message, 0, 0); ctx.fillText(state.message, 0, 0);
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+function bigButton(label, cy) {
+  const bw = sz(190), bh = sz(58), bx = W/2-bw/2, by = cy;
+  const pulse = 1 + Math.sin(state.menuPulse*1.6)*0.025;
+  ctx.save();
+  ctx.translate(W/2, by+bh/2); ctx.scale(pulse,pulse); ctx.translate(-W/2, -(by+bh/2));
+  const g = ctx.createLinearGradient(bx,by,bx,by+bh);
+  g.addColorStop(0,"#ff9f43"); g.addColorStop(1,"#ee6b1f");
+  ctx.fillStyle=g; ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,sz(14)); ctx.fill();
+  ctx.fillStyle="#fff"; ctx.font=`bold ${sz(22)}px system-ui`; ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.fillText(label, W/2, by+bh/2);
+  ctx.restore();
+  state._btn = { x:bx, y:by, w:bw, h:bh };
+}
+
+function renderMenu() {
+  ctx.textAlign="center"; ctx.textBaseline="middle";
+  // Title with shadow
+  ctx.fillStyle="rgba(0,0,0,0.4)"; ctx.font=`bold ${sz(52)}px system-ui`;
+  ctx.fillText("PAPER TUSS", W/2+sz(3), H*0.24+sz(3));
+  const tg = ctx.createLinearGradient(0, H*0.18, 0, H*0.30);
+  tg.addColorStop(0,"#ffd54a"); tg.addColorStop(1,"#ff8a3d");
+  ctx.fillStyle = tg; ctx.fillText("PAPER TUSS", W/2, H*0.24);
+
+  ctx.fillStyle="#c2cad8"; ctx.font=`${sz(16)}px system-ui`;
+  ctx.fillText("Drag back, aim, and toss it in the bin!", W/2, H*0.35);
+
+  bigButton(STR.play.toUpperCase(), H*0.46);
+
+  ctx.fillStyle="#ffd54a"; ctx.font=`bold ${sz(15)}px system-ui`;
+  ctx.fillText(`★ ${STR.best}: ${state.best} pts`, W/2, H*0.62);
+
+  ctx.fillStyle="#7d8aa5"; ctx.font=`${sz(13)}px system-ui`;
+  ctx.fillText("Mind the fan — wind curves your shot", W/2, H*0.72);
+  ctx.fillText("Chain baskets for combo bonuses 🔥", W/2, H*0.77);
+}
+
+function renderGameOver() {
+  ctx.fillStyle="rgba(12,16,26,0.78)"; ctx.fillRect(0,0,W,H);
+  ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.fillStyle="#ff7a3d"; ctx.font=`bold ${sz(42)}px system-ui`;
+  ctx.fillText(STR.gameOver, W/2, H*0.26);
+
+  ctx.fillStyle="#fff"; ctx.font=`${sz(24)}px system-ui`;
+  ctx.fillText(`${STR.score}: ${state.score}`, W/2, H*0.39);
+
+  ctx.fillStyle="#9fb0c8"; ctx.font=`${sz(15)}px system-ui`;
+  ctx.fillText(`Best combo: x${state.bestCombo}`, W/2, H*0.46);
+
+  if (state.score >= state.best && state.score > 0) {
+    const p = 1 + Math.sin(state.menuPulse*2)*0.06;
+    ctx.save(); ctx.translate(W/2,H*0.52); ctx.scale(p,p);
+    ctx.fillStyle="#ffd54a"; ctx.font=`bold ${sz(20)}px system-ui`;
+    ctx.fillText("★ NEW BEST! ★", 0, 0); ctx.restore();
+  }
+  bigButton("PLAY AGAIN", H*0.60);
+}
+
+// roundRect polyfill
 if (!CanvasRenderingContext2D.prototype.roundRect) {
-  CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
-    if (r > w/2) r = w/2;
-    if (r > h/2) r = h/2;
-    this.moveTo(x + r, y);
-    this.lineTo(x + w - r, y);
-    this.quadraticCurveTo(x + w, y, x + w, y + r);
-    this.lineTo(x + w, y + h - r);
-    this.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    this.lineTo(x + r, y + h);
-    this.quadraticCurveTo(x, y + h, x, y + h - r);
-    this.lineTo(x, y + r);
-    this.quadraticCurveTo(x, y, x + r, y);
-    this.closePath();
-    return this;
+  CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r){
+    if(r>w/2)r=w/2; if(r>h/2)r=h/2;
+    this.moveTo(x+r,y); this.lineTo(x+w-r,y); this.quadraticCurveTo(x+w,y,x+w,y+r);
+    this.lineTo(x+w,y+h-r); this.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    this.lineTo(x+r,y+h); this.quadraticCurveTo(x,y+h,x,y+h-r);
+    this.lineTo(x,y+r); this.quadraticCurveTo(x,y,x+r,y); this.closePath(); return this;
   };
 }
 
 // ── Main loop ──
-const STEP = 1000 / 60;
-let acc = 0, last = performance.now(), paused = false, frames = 0, fpsAt = last, fps = 0;
-
-addEventListener("blur", () => paused = true);
-addEventListener("focus", () => { paused = false; last = performance.now(); });
-
+const STEP = 1000/60;
+let acc=0, last=performance.now(), paused=false, frames=0, fpsAt=last, fps=0;
+addEventListener("blur", ()=>paused=true);
+addEventListener("focus", ()=>{ paused=false; last=performance.now(); });
 const dev = new URLSearchParams(location.search).has("dev");
-if (dev) document.getElementById("dev").style.display = "block";
+if (dev) document.getElementById("dev").style.display="block";
 
 function frame(now) {
   requestAnimationFrame(frame);
   if (paused) return;
-  acc += now - last; last = now;
-  while (acc >= STEP) { update(STEP); acc -= STEP; }
+  acc += now-last; last = now;
+  let steps = 0;
+  while (acc >= STEP && steps < 5) { update(STEP); acc -= STEP; steps++; }
+  if (acc > STEP*5) acc = 0;
   render();
-  if (dev && (frames++, now - fpsAt >= 500)) {
-    fps = Math.round(frames * 1000 / (now - fpsAt)); frames = 0; fpsAt = now;
-    document.getElementById("dev").textContent = fps + " fps";
-  }
+  if (dev && (frames++, now-fpsAt>=500)) { fps=Math.round(frames*1000/(now-fpsAt)); frames=0; fpsAt=now; document.getElementById("dev").textContent=fps+" fps | particles:"+state.particles.length; }
 }
 
 // ── Boot ──
 resize();
+refreshMuteIcon();
 loadAssets().then(() => {
   document.getElementById("loading").style.display = "none";
+  document.getElementById("mute").style.display = "block";
   requestAnimationFrame(frame);
 });
 </script>
