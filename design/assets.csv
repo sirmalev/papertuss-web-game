@@ -1,0 +1,7 @@
+id,role,type,description,size/ratio,style line ref,source
+paper-ball,sprite,2d,crumpled white paper ball,1:1,block1,generate
+trash-can,sprite,2d,blue office trash can with silver rim standing on floor,1:1,block1,generate
+desk-fan,sprite,2d,silver desk fan with three blades on a stand,1:1,block1,generate
+office-bg,background,2d,office room interior with beige walls a whiteboard a desk and a computer monitor,16:9,block1,generate
+ui-menu-btn,ui,2d,rounded rectangle button that says MAIN MENU,1:1,block1,generate
+score-display,ui,2d,rounded rectangle score counter panel,1:1,block1,generate

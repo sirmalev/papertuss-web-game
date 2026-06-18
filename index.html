@@ -1,0 +1,687 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Paper Tuss</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#2c2c2c;font-family:'Segoe UI',sans-serif;user-select:none;-webkit-user-select:none}
+canvas{display:block;cursor:crosshair}
+#dev{position:fixed;top:4px;left:4px;color:#0f0;font:12px monospace;display:none;z-index:99;pointer-events:none}
+#loading{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#2c2c2c;color:#ffa500;font:24px sans-serif;z-index:100}
+#loading .bar{width:200px;height:6px;background:#444;border-radius:3px;margin-top:16px;overflow:hidden}
+#loading .fill{height:100%;width:0%;background:#ffa500;border-radius:3px;transition:width .3s}
+</style></head>
+<body>
+<canvas id="c"></canvas><div id="dev"></div>
+<div id="loading"><div>Paper Tuss</div><div style="font-size:14px;color:#999;margin-top:8px">Loading assets...</div><div class="bar"><div class="fill" id="loadFill"></div></div></div>
+<script type="module">
+import { STR } from "./strings.js";
+
+// ── Runtime key-color removal (magenta → transparent) ──
+const KEY_COLOR = [255, 0, 255];
+const KEY_THRESH = 50;
+
+function keyOutImage(img) {
+  const c = document.createElement("canvas");
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
+  c.width = w; c.height = h;
+  const cx = c.getContext("2d");
+  cx.drawImage(img, 0, 0);
+  const d = cx.getImageData(0, 0, w, h);
+  const pix = d.data;
+  // Mark magenta pixels transparent
+  const out = new Uint8Array(pix.length);
+  for (let i = 0; i < pix.length; i += 4) {
+    const dr = Math.abs(pix[i] - KEY_COLOR[0]);
+    const dg = Math.abs(pix[i+1] - KEY_COLOR[1]);
+    const db = Math.abs(pix[i+2] - KEY_COLOR[2]);
+    if (dr < KEY_THRESH && dg < KEY_THRESH && db < KEY_THRESH && pix[i+3] > 128) {
+      out[i+3] = 0;
+    } else {
+      out[i] = pix[i]; out[i+1] = pix[i+1]; out[i+2] = pix[i+2]; out[i+3] = pix[i+3];
+    }
+  }
+  // Flood-fill from edges for enclosed magenta regions
+  const visited = new Uint8Array(w * h);
+  const queue = [];
+  for (let y = 0; y < h; y++) {
+    for (const x of [0, w-1]) {
+      const idx = y * w + x;
+      if (!visited[idx] && out[idx*4+3] > 0) { visited[idx] = 1; queue.push(x, y); }
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    for (const y of [0, h-1]) {
+      const idx = y * w + x;
+      if (!visited[idx] && out[idx*4+3] > 0) { visited[idx] = 1; queue.push(x, y); }
+    }
+  }
+  let qi = 0;
+  while (qi < queue.length) {
+    const cx2 = queue[qi++], cy = queue[qi++];
+    for (const [nx, ny] of [[cx2-1,cy],[cx2+1,cy],[cx2,cy-1],[cx2,cy+1]]) {
+      if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+        const idx = ny * w + nx;
+        if (!visited[idx] && out[idx*4+3] > 0) {
+          const pi = idx * 4;
+          const dr = Math.abs(out[pi] - KEY_COLOR[0]);
+          const dg = Math.abs(out[pi+1] - KEY_COLOR[1]);
+          const db = Math.abs(out[pi+2] - KEY_COLOR[2]);
+          if (dr < KEY_THRESH && dg < KEY_THRESH && db < KEY_THRESH) {
+            out[pi+3] = 0;
+          }
+          visited[idx] = 1;
+          queue.push(nx, ny);
+        }
+      }
+    }
+  }
+  d.data.set(out);
+  cx.putImageData(d, 0, 0);
+  return c;
+}
+
+// ── Asset loading ──
+const ASSETS = {};
+const ASSET_LIST = [
+  { id:"paper-ball", file:"./assets/paper-ball_raw.png", key: true },
+  { id:"trash-can",  file:"./assets/trash-can_raw.png", key: true },
+  { id:"desk-fan",   file:"./assets/desk-fan_raw.png", key: true },
+  { id:"office-bg",  file:"./assets/office-bg_raw.png", key: true },
+];
+let assetsLoaded = 0;
+const loadFill = document.getElementById("loadFill");
+
+function loadAssets() {
+  return Promise.all(ASSET_LIST.map(({id, file, key}) =>
+    new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        if (key) {
+          ASSETS[id] = keyOutImage(img);
+        } else {
+          ASSETS[id] = img;
+        }
+        assetsLoaded++;
+        loadFill.style.width = Math.round(assetsLoaded/ASSET_LIST.length*100)+"%";
+        resolve();
+      };
+      img.onerror = () => { assetsLoaded++; loadFill.style.width = Math.round(assetsLoaded/ASSET_LIST.length*100)+"%"; resolve(); };
+      img.src = file;
+    })
+  ));
+}
+
+// ── Constants ──
+const GRAVITY = 980;
+const PIXELS_PER_METER = 120;
+
+// ── Game state ──
+const state = {
+  screen: "menu", // menu | playing | gameover
+  score: 0,
+  best: parseInt(localStorage.getItem("papertuss_best") || "0"),
+  throws: 10,
+  level: 1,
+  wind: { strength: 0.3, dir: -1 }, // -1 left, 1 right, 0 none
+  // Paper
+  paper: { x: 0, y: 0, vx: 0, vy: 0, flying: false, startX: 0, startY: 0 },
+  // Trash can position
+  target: { x: 0, y: 0 },
+  // Fan position
+  fan: { x: 0, y: 0 },
+  // Drag
+  drag: { active: false, startX: 0, startY: 0, endX: 0, endY: 0 },
+  // Animations
+  trail: [],
+  // Scoring
+  message: "",
+  messageTimer: 0,
+  // Level data
+  levels: [
+    { name: "Easy Office", targetX: 0.55, targetY: 0.38, fanX: 0.85, fanY: 0.50, windRange: [0.1, 0.5] },
+    { name: "Busy Office", targetX: 0.60, targetY: 0.35, fanX: 0.75, fanY: 0.55, windRange: [0.2, 0.7] },
+    { name: "Corner Office", targetX: 0.70, targetY: 0.30, fanX: 0.20, fanY: 0.45, windRange: [0.3, 0.9] },
+    { name: "The Challenge", targetX: 0.80, targetY: 0.25, fanX: 0.50, fanY: 0.60, windRange: [0.4, 1.2] },
+  ],
+  windAnim: 0,
+};
+
+// ── CANVAS ──
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const DPR_CAP = 1.5;
+let W, H;
+
+function resize() {
+  const dpr = Math.min(devicePixelRatio || 1, DPR_CAP);
+  W = innerWidth; H = innerHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + "px"; canvas.style.height = H + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  calcPositions();
+}
+addEventListener("resize", resize); addEventListener("orientationchange", resize);
+
+function calcPositions() {
+  const lv = state.levels[Math.min(state.level - 1, state.levels.length - 1)];
+  state.target.x = lv.targetX * W;
+  state.target.y = lv.targetY * H;
+  state.fan.x = lv.fanX * W;
+  state.fan.y = lv.fanY * H;
+  state.paper.x = 0.18 * W;
+  state.paper.y = 0.82 * H;
+  state.paper.startX = state.paper.x;
+  state.paper.startY = state.paper.y;
+}
+
+// ── Input ──
+let pointer = { x: 0, y: 0, down: false };
+
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: (e.clientX || e.touches?.[0]?.clientX || 0) - rect.left, y: (e.clientY || e.touches?.[0]?.clientY || 0) - rect.top };
+}
+
+function pointerDown(e) {
+  e.preventDefault();
+  if (state.screen === "menu") {
+    state.screen = "playing";
+    initLevel();
+    return;
+  }
+  if (state.screen === "gameover") {
+    state.score = 0; state.throws = 10; state.level = 1;
+    state.screen = "playing";
+    initLevel();
+    return;
+  }
+  if (state.paper.flying || state.messageTimer > 0) return;
+  const p = getPos(e);
+  // Check if near paper
+  const dx = p.x - state.paper.x;
+  const dy = p.y - state.paper.y;
+  if (Math.sqrt(dx*dx + dy*dy) < 60) {
+    state.drag.active = true;
+    state.drag.startX = state.paper.x;
+    state.drag.startY = state.paper.y;
+    state.drag.endX = p.x;
+    state.drag.endY = p.y;
+  }
+}
+
+function pointerMove(e) {
+  e.preventDefault();
+  const p = getPos(e);
+  if (state.drag.active && !state.paper.flying) {
+    state.drag.endX = p.x;
+    state.drag.endY = p.y;
+  }
+}
+
+function pointerUp(e) {
+  e.preventDefault();
+  if (state.drag.active && !state.paper.flying) {
+    // Calculate throw velocity
+    const dx = state.drag.endX - state.drag.startX;
+    const dy = state.drag.endY - state.drag.startY;
+    const power = Math.min(Math.sqrt(dx*dx + dy*dy) / 8, 12);
+    const angle = Math.atan2(dy, dx);
+    // Reverse: pull back = throw forward
+    state.paper.vx = -Math.cos(angle) * power * 60;
+    state.paper.vy = -Math.sin(angle) * power * 60;
+    state.paper.flying = true;
+    state.drag.active = false;
+    state.trail = [];
+  }
+}
+
+canvas.addEventListener("mousedown", pointerDown);
+canvas.addEventListener("mousemove", pointerMove);
+canvas.addEventListener("mouseup", pointerUp);
+canvas.addEventListener("touchstart", pointerDown, {passive:false});
+canvas.addEventListener("touchmove", pointerMove, {passive:false});
+canvas.addEventListener("touchend", pointerUp, {passive:false});
+
+// ── Level init ──
+function initLevel() {
+  const lv = state.levels[Math.min(state.level - 1, state.levels.length - 1)];
+  state.wind.strength = lv.windRange[0] + Math.random() * (lv.windRange[1] - lv.windRange[0]);
+  state.wind.dir = Math.random() > 0.4 ? 1 : -1;
+  if (state.level > 2) state.wind.dir = 1; // progressively harder
+  calcPositions();
+  state.paper.flying = false;
+  state.paper.vx = 0; state.paper.vy = 0;
+  state.paper.x = state.paper.startX;
+  state.paper.y = state.paper.startY;
+  state.trail = [];
+  state.message = "";
+  state.messageTimer = 0;
+}
+
+// ── Update ──
+function update(dt) {
+  if (state.screen !== "playing") return;
+
+  state.windAnim += dt * 0.003;
+
+  if (state.messageTimer > 0) {
+    state.messageTimer -= dt;
+    if (state.messageTimer <= 0) {
+      state.message = "";
+      state.messageTimer = 0;
+      // Next throw
+      if (state.throws > 0) {
+        state.paper.flying = false;
+        state.paper.x = state.paper.startX;
+        state.paper.y = state.paper.startY;
+        state.paper.vx = 0; state.paper.vy = 0;
+        state.trail = [];
+        // New wind each throw
+        const lv = state.levels[Math.min(state.level - 1, state.levels.length - 1)];
+        state.wind.strength = lv.windRange[0] + Math.random() * (lv.windRange[1] - lv.windRange[0]);
+        if (Math.random() > 0.4) state.wind.dir *= -1;
+      }
+    }
+    return;
+  }
+
+  if (state.paper.flying) {
+    // Physics
+    const windForce = state.wind.dir * state.wind.strength * 180;
+    state.paper.vx += windForce * dt / 1000;
+    state.paper.vy += GRAVITY * dt / 1000;
+    state.paper.x += state.paper.vx * dt / 1000;
+    state.paper.y += state.paper.vy * dt / 1000;
+
+    // Trail
+    state.trail.push({ x: state.paper.x, y: state.paper.y, life: 1 });
+    if (state.trail.length > 20) state.trail.shift();
+    state.trail.forEach(t => t.life -= dt * 0.002);
+    state.trail = state.trail.filter(t => t.life > 0);
+
+    // Check collision with trash can
+    const tW = 60;
+    const tH = 80;
+    if (state.paper.x > state.target.x - tW/2 && state.paper.x < state.target.x + tW/2 &&
+        state.paper.y > state.target.y - tH/2 && state.paper.y < state.target.y + tH/2) {
+      // SCORE!
+      state.score++;
+      if (state.score > state.best) {
+        state.best = state.score;
+        localStorage.setItem("papertuss_best", state.best);
+      }
+      state.message = "BASKET! " + state.score + " pts!";
+      state.messageTimer = 1500;
+      state.throws--;
+      // Level up every 3 baskets
+      if (state.score % 3 === 0 && state.level < state.levels.length) {
+        state.level++;
+        state.throws += 3; // bonus throws
+      }
+      return;
+    }
+
+    // Out of bounds
+    if (state.paper.y > H + 50 || state.paper.x < -50 || state.paper.x > W + 50) {
+      state.message = "Miss!";
+      state.messageTimer = 1000;
+      state.throws--;
+      if (state.throws <= 0) {
+        state.screen = "gameover";
+      }
+    }
+  }
+}
+
+// ── Render ──
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  if (state.screen === "menu") {
+    renderMenu();
+    return;
+  }
+  if (state.screen === "gameover") {
+    renderGameOver();
+    return;
+  }
+
+  // Background
+  if (ASSETS["office-bg"]) {
+    ctx.drawImage(ASSETS["office-bg"], 0, 0, W, H);
+  } else {
+    // Fallback background
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, "#d4c5a9");
+    grad.addColorStop(0.3, "#c8b999");
+    grad.addColorStop(0.5, "#b8a88a");
+    grad.addColorStop(0.7, "#8a7a6a");
+    grad.addColorStop(1, "#6b5b4b");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // Floor
+  ctx.fillStyle = "#8b7355";
+  ctx.fillRect(0, H - 40, W, 40);
+
+  // Trash can
+  if (ASSETS["trash-can"]) {
+    const tSize = Math.min(W * 0.1, 80);
+    ctx.drawImage(ASSETS["trash-can"], state.target.x - tSize/2, state.target.y - tSize, tSize, tSize * 1.3);
+  } else {
+    // Fallback
+    ctx.fillStyle = "#e67e22";
+    ctx.fillRect(state.target.x - 30, state.target.y - 60, 60, 60);
+    ctx.fillStyle = "#c0392b";
+    ctx.fillRect(state.target.x - 28, state.target.y - 60, 56, 8);
+  }
+
+  // Fan
+  if (ASSETS["desk-fan"]) {
+    const fSize = Math.min(W * 0.08, 64);
+    // Oscillation
+    const osc = Math.sin(state.windAnim) * 15;
+    ctx.save();
+    ctx.translate(state.fan.x, state.fan.y);
+    ctx.rotate(osc * Math.PI / 180);
+    ctx.drawImage(ASSETS["desk-fan"], -fSize/2, -fSize/2, fSize, fSize);
+    ctx.restore();
+  } else {
+    ctx.fillStyle = "#aaa";
+    ctx.beginPath();
+    ctx.arc(state.fan.x, state.fan.y, 20, 0, Math.PI*2);
+    ctx.stroke();
+  }
+
+  // Wind indicator
+  renderWind();
+
+  // Trajectory trail
+  for (const t of state.trail) {
+    const alpha = t.life * 0.5;
+    ctx.fillStyle = `rgba(200,200,200,${alpha})`;
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, 3 * t.life, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Drag aim line
+  if (state.drag.active && !state.paper.flying) {
+    const dx = state.drag.endX - state.drag.startX;
+    const dy = state.drag.endY - state.drag.startY;
+    const len = Math.sqrt(dx*dx + dy*dy);
+
+    // Aim line (dotted)
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = "rgba(255,255,255,0.4)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(state.paper.startX, state.paper.startY);
+    // Projection line in opposite direction
+    const projLen = Math.min(len * 0.6, 150);
+    const projAngle = Math.atan2(dy, dx);
+    ctx.lineTo(state.paper.startX - Math.cos(projAngle) * projLen, state.paper.startY - Math.sin(projAngle) * projLen);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Trajectory preview
+    const power = Math.min(len / 8, 12);
+    ctx.strokeStyle = "rgba(255,255,255,0.15)";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([2, 6]);
+    ctx.beginPath();
+    let px = state.paper.startX, py = state.paper.startY;
+    let pvx = -Math.cos(projAngle) * power * 60;
+    let pvy = -Math.sin(projAngle) * power * 60;
+    ctx.moveTo(px, py);
+    const windF = state.wind.dir * state.wind.strength * 180;
+    for (let i = 0; i < 40; i++) {
+      pvx += windF * 0.016;
+      pvy += GRAVITY * 0.016;
+      px += pvx * 0.016;
+      py += pvy * 0.016;
+      ctx.lineTo(px, py);
+      if (py > H) break;
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Power indicator
+    const pct = Math.min(len / 120, 1);
+    const barW = 80, barH = 10;
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.roundRect(W/2 - barW/2 - 2, H - 60 - barH - 2, barW + 4, barH + 4, 4);
+    ctx.fill();
+    ctx.fillStyle = "#444";
+    ctx.roundRect(W/2 - barW/2, H - 60 - barH, barW, barH, 3);
+    ctx.fill();
+    ctx.fillStyle = pct > 0.7 ? "#e74c3c" : pct > 0.4 ? "#f39c12" : "#2ecc71";
+    ctx.roundRect(W/2 - barW/2, H - 60 - barH, barW * pct, barH, 3);
+    ctx.fill();
+  }
+
+  // Paper ball
+  if (ASSETS["paper-ball"] && !state.messageTimer) {
+    const pSize = 28;
+    ctx.drawImage(ASSETS["paper-ball"], state.paper.x - pSize/2, state.paper.y - pSize/2, pSize, pSize);
+  } else if (!state.messageTimer) {
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(state.paper.x, state.paper.y, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#ccc";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  // Score HUD
+  renderHUD();
+
+  // Message
+  if (state.message && state.messageTimer > 0) {
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.roundRect(W/2 - 120, H/2 - 30, 240, 60, 12);
+    ctx.fill();
+    ctx.fillStyle = "#ffd700";
+    ctx.font = "bold 22px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(state.message, W/2, H/2);
+  }
+}
+
+function renderMenu() {
+  // Background
+  if (ASSETS["office-bg"]) {
+    ctx.drawImage(ASSETS["office-bg"], 0, 0, W, H);
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.fillRect(0, 0, W, H);
+  } else {
+    ctx.fillStyle = "#2c3e50";
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 48px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("PAPER TUSS", W/2, H * 0.25);
+
+  ctx.font = "18px sans-serif";
+  ctx.fillStyle = "#bbb";
+  ctx.fillText("Drag & toss the paper into the bin!", W/2, H * 0.36);
+
+  // Play button
+  const bx = W/2 - 80, by = H * 0.48, bw = 160, bh = 50;
+  ctx.fillStyle = "#e67e22";
+  ctx.roundRect(bx, by, bw, bh, 10);
+  ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 20px sans-serif";
+  ctx.fillText("PLAY", W/2, by + bh/2);
+
+  // Stats
+  ctx.fillStyle = "#999";
+  ctx.font = "14px sans-serif";
+  ctx.fillText("Best: " + state.best + " pts", W/2, H * 0.62);
+
+  // Instructions
+  ctx.fillStyle = "#777";
+  ctx.font = "13px sans-serif";
+  ctx.fillText("← Drag back to aim & power →", W/2, H * 0.72);
+  ctx.fillText("Watch out for the fan's wind!", W/2, H * 0.77);
+}
+
+function renderGameOver() {
+  ctx.fillStyle = "rgba(0,0,0,0.7)";
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = "#ff6b35";
+  ctx.font = "bold 40px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("GAME OVER!", W/2, H * 0.25);
+
+  ctx.fillStyle = "#fff";
+  ctx.font = "24px sans-serif";
+  ctx.fillText("Score: " + state.score, W/2, H * 0.38);
+
+  if (state.score >= state.best && state.score > 0) {
+    ctx.fillStyle = "#ffd700";
+    ctx.font = "18px sans-serif";
+    ctx.fillText("NEW BEST!", W/2, H * 0.46);
+  }
+
+  // Restart button
+  const bx = W/2 - 80, by = H * 0.55, bw = 160, bh = 50;
+  ctx.fillStyle = "#e67e22";
+  ctx.roundRect(bx, by, bw, bh, 10);
+  ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 20px sans-serif";
+  ctx.fillText("PLAY AGAIN", W/2, by + bh/2);
+}
+
+function renderWind() {
+  const cx = W/2, cy = 50;
+  // Wind arrow
+  const arrowLen = 40 + state.wind.strength * 30;
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
+  ctx.roundRect(cx - 60 - 4, cy - 18, 120 + 8, 36, 8);
+  ctx.fill();
+
+  ctx.fillStyle = "#aaddff";
+  ctx.font = "12px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("WIND", cx, cy);
+
+  const arrowX = state.wind.dir * arrowLen;
+  ctx.strokeStyle = "rgba(170, 221, 255, 0.7)";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + 8);
+  ctx.lineTo(cx + arrowX, cy + 8);
+  ctx.stroke();
+
+  // Arrow head
+  const headSize = 8;
+  const headDir = state.wind.dir > 0 ? 1 : -1;
+  ctx.beginPath();
+  ctx.moveTo(cx + arrowX, cy + 8);
+  ctx.lineTo(cx + arrowX - headDir * headSize, cy + 8 - headSize/2);
+  ctx.lineTo(cx + arrowX - headDir * headSize, cy + 8 + headSize/2);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(170, 221, 255, 0.7)";
+  ctx.fill();
+
+  ctx.fillStyle = "rgba(170, 221, 255, 0.5)";
+  ctx.font = "11px sans-serif";
+  ctx.fillText(state.wind.strength.toFixed(2), cx, cy + 24);
+}
+
+function renderHUD() {
+  const lv = state.levels[Math.min(state.level - 1, state.levels.length - 1)];
+
+  // Score panel (top left)
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
+  ctx.roundRect(8, 8, 120, 60, 8);
+  ctx.fill();
+
+  ctx.fillStyle = "#ffd700";
+  ctx.font = "bold 20px sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillText("Score: " + state.score, 16, 14);
+
+  ctx.fillStyle = "#999";
+  ctx.font = "12px sans-serif";
+  ctx.fillText("Best: " + state.best, 16, 40);
+
+  // Level and throws (top right)
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
+  ctx.roundRect(W - 148, 8, 140, 60, 8);
+  ctx.fill();
+
+  ctx.fillStyle = "#ddd";
+  ctx.font = "bold 16px sans-serif";
+  ctx.textAlign = "right";
+  ctx.fillText(lv.name, W - 16, 14);
+
+  ctx.fillStyle = "#bbb";
+  ctx.font = "14px sans-serif";
+  ctx.fillText("Throws: " + state.throws, W - 16, 40);
+}
+
+// ── roundRect polyfill for older browsers ──
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+    if (r > w/2) r = w/2;
+    if (r > h/2) r = h/2;
+    this.moveTo(x + r, y);
+    this.lineTo(x + w - r, y);
+    this.quadraticCurveTo(x + w, y, x + w, y + r);
+    this.lineTo(x + w, y + h - r);
+    this.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    this.lineTo(x + r, y + h);
+    this.quadraticCurveTo(x, y + h, x, y + h - r);
+    this.lineTo(x, y + r);
+    this.quadraticCurveTo(x, y, x + r, y);
+    this.closePath();
+    return this;
+  };
+}
+
+// ── Main loop ──
+const STEP = 1000 / 60;
+let acc = 0, last = performance.now(), paused = false, frames = 0, fpsAt = last, fps = 0;
+
+addEventListener("blur", () => paused = true);
+addEventListener("focus", () => { paused = false; last = performance.now(); });
+
+const dev = new URLSearchParams(location.search).has("dev");
+if (dev) document.getElementById("dev").style.display = "block";
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (paused) return;
+  acc += now - last; last = now;
+  while (acc >= STEP) { update(STEP); acc -= STEP; }
+  render();
+  if (dev && (frames++, now - fpsAt >= 500)) {
+    fps = Math.round(frames * 1000 / (now - fpsAt)); frames = 0; fpsAt = now;
+    document.getElementById("dev").textContent = fps + " fps";
+  }
+}
+
+// ── Boot ──
+resize();
+loadAssets().then(() => {
+  document.getElementById("loading").style.display = "none";
+  requestAnimationFrame(frame);
+});
+</script>
+</body>
+</html>
