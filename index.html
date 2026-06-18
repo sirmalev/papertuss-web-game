@@ -119,7 +119,7 @@ const Sound = (() => {
 })();
 
 // ── Constants ──
-const GRAVITY = 980;
+const GRAVITY = 350; // paper-like gravity
 
 // ── Game state ──
 const state = {
@@ -131,7 +131,7 @@ const state = {
   combo: 0,
   bestCombo: 0,
   wind: { strength: 0.3, dir: -1 },
-  paper: { x:0, y:0, vx:0, vy:0, flying:false, startX:0, startY:0, rot:0, spin:0, scored:false },
+  paper: { x:0, y:0, vx:0, vy:0, flying:false, startX:0.15, startY:0.78, rot:0, spin:0, scored:false },
   target: { x:0, y:0 },
   fan: { x:0, y:0 },
   drag: { active:false, startX:0, startY:0, endX:0, endY:0 },
@@ -143,10 +143,10 @@ const state = {
   flashColor: null, flashTimer: 0,
   windParticles: [],
   levels: [
-    { name:"Easy Office",   targetX:0.55, targetY:0.40, fanX:0.85, fanY:0.50, windRange:[0.1,0.5] },
-    { name:"Busy Office",   targetX:0.60, targetY:0.36, fanX:0.75, fanY:0.55, windRange:[0.2,0.7] },
-    { name:"Corner Office", targetX:0.70, targetY:0.32, fanX:0.20, fanY:0.45, windRange:[0.3,0.9] },
-    { name:"The Challenge", targetX:0.80, targetY:0.28, fanX:0.50, fanY:0.60, windRange:[0.4,1.2] },
+    { name:"Easy Office",   targetX:0.48, targetY:0.82, fanX:0.85, fanY:0.50, windRange:[0.1,0.4] },
+    { name:"Busy Office",   targetX:0.58, targetY:0.80, fanX:0.75, fanY:0.55, windRange:[0.2,0.6] },
+    { name:"Corner Office", targetX:0.68, targetY:0.78, fanX:0.20, fanY:0.45, windRange:[0.2,0.8] },
+    { name:"The Challenge", targetX:0.78, targetY:0.76, fanX:0.50, fanY:0.60, windRange:[0.3,1.0] },
   ],
   windAnim: 0,
   menuPulse: 0,
@@ -174,7 +174,7 @@ function calcPositions() {
   const lv = state.levels[Math.min(state.level-1, state.levels.length-1)];
   state.target.x = lv.targetX*W; state.target.y = lv.targetY*H;
   state.fan.x = lv.fanX*W; state.fan.y = lv.fanY*H;
-  state.paper.x = 0.18*W; state.paper.y = 0.82*H;
+  state.paper.x = 0.15*W; state.paper.y = 0.78*H;
   state.paper.startX = state.paper.x; state.paper.startY = state.paper.y;
 }
 
@@ -213,7 +213,7 @@ function pointerUp(e) {
     const len = Math.sqrt(dx*dx+dy*dy);
     state.drag.active = false;
     if (len < sz(12)) return; // tap, not a throw
-    const power = Math.min(len/8, 13);
+    const power = Math.min(len/7, 10.5); // calibrated reachable arcs
     const angle = Math.atan2(dy, dx);
     state.paper.vx = -Math.cos(angle)*power*60;
     state.paper.vy = -Math.sin(angle)*power*60;
@@ -470,7 +470,7 @@ function renderAim() {
   const dx = state.drag.endX-state.drag.startX, dy = state.drag.endY-state.drag.startY;
   const len = Math.sqrt(dx*dx+dy*dy);
   const projAngle = Math.atan2(dy, dx);
-  const power = Math.min(len/8, 13);
+  const power = Math.min(len/7, 10.5);
 
   // trajectory preview (dotted)
   ctx.strokeStyle = "rgba(255,255,255,0.28)";
@@ -484,7 +484,7 @@ function renderAim() {
   ctx.stroke(); ctx.setLineDash([]);
 
   // power meter ring around paper
-  const pct = Math.min(len/130, 1);
+  const pct = Math.min(len/75, 1);
   ctx.beginPath();
   ctx.arc(state.paper.startX, state.paper.startY, sz(26), -Math.PI/2, -Math.PI/2 + pct*Math.PI*2);
   ctx.strokeStyle = pct>0.7?"#e74c3c":pct>0.4?"#f39c12":"#2ecc71";
